@@ -31,7 +31,7 @@ import time
 from datetime import datetime
 
 try:
-    from model import GlobalModel, GlobalLoss, GDDA_Loss, SemanticSimCLRLoss
+    from models import GlobalModel, GlobalLoss, GDDA_Loss, SemanticSimCLRLoss
 except ImportError:
     print("Warning: Could not import GlobalModel")
 
