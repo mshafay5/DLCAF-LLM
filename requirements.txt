@@ -1,0 +1,15 @@
+torch
+torchvision
+torchaudio
+transformers
+huggingface-hub
+numpy
+pandas
+scikit-learn
+Pillow
+opencv-python
+tqdm
+matplotlib
+seaborn
+gradio
+typing-extensions
