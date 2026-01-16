@@ -179,11 +179,6 @@ The dashboard will:
 
 ---
 
-## 🖼️ Example GUI Screenshots
-
-After you upload the GUI images to the repository (for example into an `assets/` folder), you can include them in the README like this:
-
-```markdown
 ### GUI Overview
 
 ![DLCAF-LLM GUI Overview](assets/GUI1.png)
