@@ -181,7 +181,7 @@ The dashboard will:
 
 ### GUI Overview
 
-![DLCAF-LLM GUI Overview](assets/GUI1.png)
+![DLCAF-LLM GUI Overview](assets/GI1.png)
 
 *Overview of the interactive GUI developed for the DLCAF+LLM framework. The interface supports structured image ingestion based on greenhouse layout, executes DLCAF for leaf-level disease recognition, aggregates predictions into plant- and row-level health maps, and stores spatial descriptors for subsequent temporal analysis.*
 
