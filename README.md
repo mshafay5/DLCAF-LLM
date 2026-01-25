@@ -15,6 +15,24 @@ The pipeline processes tomato leaf images collected across multiple inspection c
 to produce **leaf-level disease predictions**. These predictions are then mapped to their corresponding greenhouse rows and categorized as healthy or infected, enabling downstream **spatiotemporal analysis and decision support** via an LLM-driven module.
 
 ---
+## 📁 Dataset Availability
+
+### Abu Dhabi (AD) Greenhouse Dataset
+
+To support reproducibility and real-world validation, we provide a publicly
+available greenhouse dataset collected in Abu Dhabi, United Arab Emirates.
+
+- **Dataset name:** Abu Dhabi (AD) Greenhouse Tomato Leaf Dataset  
+- **Total images:** 502 high-resolution tomato leaf images  
+- **Classes:** Healthy, Bacterial Spot, Early Blight, Mosaic Virus  
+- **Environment:** Commercial greenhouse (arid-region conditions)  
+- **Year of collection:** 2025  
+- **DOI (Figshare):** https://doi.org/10.6084/m9.figshare.31145998  
+The **Abu Dhabi Greenhouse Dataset** is publicly available via Figshare:  https://doi.org/10.6084/m9.figshare.31145998
+The dataset was collected to evaluate cross-domain generalization of
+vision-based disease recognition models under realistic greenhouse
+conditions, including variable illumination, partial occlusion, and
+diverse leaf orientations.
 
 ## 📦 Checkpoint Release
 
@@ -22,7 +40,6 @@ We release a pretrained model checkpoint for evaluation and visualization.
 
 - **Checkpoint file:** `best_model.pt`
 - **Download:** [Checkpoints](https://drive.google.com/drive/folders/1ecYL3NXWpOYbZ-OdvgMwo07ls20P28Ef?usp=drive_link)
-- The dataset can be downloaded from [Dataset](https://drive.google.com/drive/folders/1ecYL3NXWpOYbZ-OdvgMwo07ls20P28Ef?usp=drive_link)
 - **Expected location:**
 
 ```bash
