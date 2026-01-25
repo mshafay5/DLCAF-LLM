@@ -1,5 +1,161 @@
 import os
 import datetime
+import torch
+import torch.nn.functional as F
+import numpy as np
+import gradio as gr
+import matplotlib.pyplot as plt
+from PIL import Image
+from torchvision import transforms
+from matplotlib.patches import Wedge
+from huggingface_hub import InferenceClient
+
+# Assuming GlobalModel is your custom CLIP wrapper from before
+from SLIP_MILNCE_1layer_VT import GlobalSimCLRModel 
+
+# =============================================================================
+# 1. AD-SPECIFIC STRATEGY P3 (Visual Characteristics)
+# =============================================================================
+AD_DESCRIPTIVE_PROMPTS = {
+    "Bacterial Spot": [
+        "a leaf with small water-soaked brown spots",
+        "tiny circular necrotic lesions with yellow halos",
+        "necrotic spotting across the leaf blade"
+    ],
+    "Early Blight": [
+        "a leaf with large irregular brown patches",
+        "dark brown necrotic areas on leaf tissue",
+        "leaf with large brown spots showing concentric target-like rings"
+    ],
+    "Healthy": [
+        "a solid green leaf with no spots",
+        "smooth green leaf texture without lesions",
+        "healthy vegetation with uniform green color"
+    ],
+    "Mosaic Virus": [
+        "a leaf with mottled yellow and green patterns",
+        "distorted leaf growth with mosaic-like yellowing",
+        "leaf showing interveinal chlorosis and viral mottling"
+    ]
+}
+
+EVAL_CONFIG = {
+    "model_path": "./best_model.pt",
+    "model_name": "openai/clip-vit-base-patch16",
+    "unfreeze_last_n_blocks": 1,
+}
+
+# Standard CLIP Normalization
+image_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.4814, 0.4578, 0.4082], std=[0.2686, 0.2613, 0.2757]),
+])
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# =============================================================================
+# 2. MODEL & TEXT FEATURE ENCODING
+# =============================================================================
+def load_dlcaf_model_and_text_features():
+    print(f"[Loading] DLCAF Model on {DEVICE}...")
+    model = GlobalSimCLRModel(
+        model_name=EVAL_CONFIG["model_name"],
+        dropout_rate=0.1,
+        unfreeze_last_n_blocks=EVAL_CONFIG["unfreeze_last_n_blocks"]
+    )
+
+    checkpoint = torch.load(EVAL_CONFIG["model_path"], map_location=DEVICE)
+    model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
+    model.to(DEVICE).eval()
+
+    # We use ONLY the 4 classes found in the AD Greenhouse
+    class_names = sorted(AD_DESCRIPTIVE_PROMPTS.keys())
+    healthy_label = "Healthy"
+
+    text_features = []
+    for cls in class_names:
+        prompts = AD_DESCRIPTIVE_PROMPTS[cls]
+        tokens = model.tokenizer(prompts, padding=True, truncation=True, return_tensors="pt").to(DEVICE)
+        
+        with torch.no_grad():
+            # Using the backbone CLIP logic for text features
+            cls_text_feats = model.clip_model.get_text_features(**tokens)
+            # Average the descriptive ensemble and normalize
+            avg_feat = F.normalize(cls_text_feats.mean(dim=0, keepdim=True), p=2, dim=-1)
+        text_features.append(avg_feat)
+
+    return {
+        "model": model,
+        "class_names": class_names,
+        "text_features": torch.cat(text_features, dim=0),
+        "healthy_label": healthy_label,
+    }
+
+def dlcaf_predict_images(state, image_paths):
+    model = state["model"]
+    class_names = state["class_names"]
+    text_features = state["text_features"]
+    healthy_label = state["healthy_label"]
+
+    imgs = torch.stack([image_transform(Image.open(p).convert("RGB")) for p in image_paths]).to(DEVICE)
+
+    with torch.no_grad():
+        img_feats = model.clip_model.get_image_features(imgs)
+        img_feats = F.normalize(img_feats, p=2, dim=-1)
+        sims = img_feats @ text_features.T  # Cosine Similarity
+
+        top3_vals, top3_idx = sims.topk(min(3, len(class_names)), dim=1)
+
+    results = []
+    for i in range(len(image_paths)):
+        t3_labels = [class_names[j] for j in top3_idx[i].tolist()]
+        t3_probs = top3_vals[i].tolist()
+
+        # Strict Decision Support Logic: 
+        # If any of top-3 is Healthy, we lean toward Healthy for greenhouse stability
+        if healthy_label in t3_labels:
+            h_pos = t3_labels.index(healthy_label)
+            final_label, final_prob = healthy_label, t3_probs[h_pos]
+        else:
+            final_label, final_prob = t3_labels[0], t3_probs[0]
+
+        results.append({
+            "top1_label": final_label,
+            "top1_prob": final_prob,
+            "all_top3": list(zip(t3_labels, t3_probs))
+        })
+    return results
+
+# =============================================================================
+# 3. SPATIOTEMPORAL DASHBOARD LOGIC (Wedge Heatmap)
+# =============================================================================
+
+
+def generate_wedge_heatmap(num_rows, plants_per_row, leaf_results, healthy_label):
+    fig, ax = plt.subplots(figsize=(plants_per_row * 0.8, num_rows * 0.8))
+    
+    for r in range(num_rows):
+        for c in range(plants_per_row):
+            base_idx = (r * plants_per_row + c) * 3
+            # Each plant circle is divided into 3 wedges (representing 3 leaves per plant)
+            for k in range(3):
+                lbl = leaf_results[base_idx + k]["top1_label"]
+                color = "green" if lbl == healthy_label else "red"
+                
+                wedge = Wedge((c, r), 0.4, 90 + k*120, 90 + (k+1)*120, 
+                              facecolor=color, edgecolor="black", linewidth=0.5)
+                ax.add_patch(wedge)
+
+    ax.set_xlim(-0.5, plants_per_row - 0.5)
+    ax.set_ylim(num_rows - 0.5, -0.5) # Row 1 at top
+    ax.set_aspect("equal")
+    ax.set_title("AD Greenhouse: Leaf-Level Spatial Health (3 Leaves/Plant)")
+    plt.tight_layout()
+    return fig
+
+# ... [Keep your existing LLM Advisory and Observation History functions] ...import os
+import datetime
 from typing import List, Dict, Any
 
 import gradio as gr
@@ -14,10 +170,10 @@ from matplotlib.colors import ListedColormap
 from huggingface_hub import InferenceClient
 from matplotlib.patches import Wedge
 
-from models import GlobalModel
+from SLIP_MILNCE_1layer_VT import GlobalSimCLRModel
 # Make sure this import matches where you keep the big prompt dict
-from evaluation import STRATEGY4_PROMPTS   # <-- adjust this filename if needed
-
+from evaluation import prompts   # <-- adjust this filename if needed
+prompts = CORRECTED_prompts
 ########################################
 # 1. DLCAF MODEL + PROMPT ENCODING
 ########################################
@@ -43,13 +199,13 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def load_dlcaf_model_and_text_features() -> Dict[str, Any]:
     """
     Load your DLCAF / GlobalModel and pre-encode text features
-    for all classes using STRATEGY4_PROMPTS.
+    for all classes using prompts.
     """
     model_path = EVAL_CONFIG["model_path"]
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
 
-    model = GlobalModel(
+    model = GlobalSimCLRModel(
         model_name=EVAL_CONFIG["model_name"],
         dropout_rate=0.1,
         unfreeze_last_n_blocks=EVAL_CONFIG["unfreeze_last_n_blocks"]
@@ -61,7 +217,7 @@ def load_dlcaf_model_and_text_features() -> Dict[str, Any]:
     model.eval()
 
     # Class names from your corrected prompts
-    class_names = sorted(STRATEGY4_PROMPTS.keys())
+    class_names = sorted(prompts.keys())
 
     # Find healthy class (case-insensitive)
     healthy_idx = None
@@ -70,13 +226,13 @@ def load_dlcaf_model_and_text_features() -> Dict[str, Any]:
             healthy_idx = i
             break
     if healthy_idx is None:
-        raise ValueError("Could not find a 'Healthy' class in STRATEGY4_PROMPTS keys.")
+        raise ValueError("Could not find a 'Healthy' class in prompts keys.")
     healthy_label = class_names[healthy_idx]
 
     # Pre-encode text prompts
     text_features = []
     for cls in class_names:
-        prompts = STRATEGY4_PROMPTS[cls]
+        prompts = prompts[cls]
         text_inputs = model.tokenizer(
             prompts, padding=True, truncation=True,
             max_length=77, return_tensors="pt"
@@ -104,11 +260,8 @@ def dlcaf_predict_images(state: Dict[str, Any], image_paths: List[str]) -> List[
     """
     DLCAF-style inference for a list of leaf images (each image = 1 leaf).
     Returns per-image top-1 & top-3.
+   """
     
-    Extra rule:
-      - If 'Healthy' appears in the top-3 classes for a leaf,
-        we force the final label to be 'Healthy' (bias toward healthy).
-    """
     model = state["model"]
     class_names = state["class_names"]
     text_features = state["text_features"]  # [C, D]
@@ -595,5 +748,4 @@ with gr.Blocks() as demo:
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
-
 
